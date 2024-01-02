@@ -40,7 +40,8 @@ create table if not exists entities(
     iframes real not null default(0),
     age real not null default(0),
     maxAge real,
-    hitCap int
+    hitCap int,
+    scoreForKill int
 ) strict;
 
 create table if not exists damageEvents(
@@ -143,8 +144,8 @@ from vars
 where shouldSetup;
 
 -- Insert an enemy
-insert into entities(x,y,contactDamage,affiliation,health,maxHealth)
-select 0, 0.5, 10, 1, 100, 100
+insert into entities(x,y,contactDamage,affiliation,health,maxHealth, scoreForKill)
+select 0, 0.5, 10, 1, 100, 100, 100
 from vars
 where shouldSetup;
 
@@ -265,6 +266,14 @@ where hitCap is not null
 and exists (select attacker_id from damageEvents where attacker_id = id);
 
 delete from damageEvents;
+
+-- Increase score for killed entities
+update vars
+set totalScore = totalScore + coalesce((
+    select sum(scoreForKill)
+    from entities
+    where health = 0 and scoreForKill is not null
+), 0);
 
 -- Delete entities where applicable
 delete from entities
