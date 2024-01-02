@@ -6,6 +6,9 @@ Why? _Because I can_.
 
 ## How to build and run it
 
+- You will need CMake, a somewhat modern C++ compiler and GLFW library installed on your system.
+- I'm pretty sure this won't build on Windows.
+
 ```sh
 cmake -S . -B build
 cmake --build build
@@ -20,6 +23,6 @@ cmake --build build
 
 - The database is stored in RAM to make the performance somewhat decent.
 
-- Graphics/window management are done by exposing native OpenGL/GLFW functions to SQL.
+- Graphics/window management are done by exposing native OpenGL/GLFW functions to SQL. See `source/sql_bindings.cpp` for details.
 
     (Yes, this means I often have to do stupid nonsense such as storing C++ pointers in database tables and retrieving them later. _Please don't do this in real code._)
