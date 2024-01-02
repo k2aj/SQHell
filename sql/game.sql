@@ -18,6 +18,14 @@ create table if not exists vars(
 
 ) strict;
 
+-- Separate global variables table for variables used in eval()
+-- These can't be in vars because then eval() would lock the vars table,
+-- so user commands like 'update vars set totalScore = 100' wouldn't work.
+create table if not exists sqlvars(
+    cmd text not null default(''),
+    cmdResult text not null default('')
+) strict;
+
 -- We're doing ECS since it's basically a simplified version of the relational model
 create table if not exists entities(
     id integer primary key,
@@ -68,6 +76,10 @@ create table if not exists rects(
 insert into vars(shouldSetup)
 select 1
 where (select count(*) from vars) = 0;
+
+insert into sqlvars(cmd)
+select ''
+where (select count(*) from sqlvars) = 0;
 
 -- Initialize GLFW and OpenGL
 update vars
@@ -190,6 +202,16 @@ select ImGuiBegin("Statistics");
 
     select ImGuiLabel("Player controlled", count(*)) 
     from entities where isPlayer;
+
+    update sqlvars
+    set cmd = ImGuiInputTextMultiline("SQL command", cmd);
+
+    update sqlvars
+    set cmdResult = eval(cmd)
+    where ImGuiButton("Run SQL");
+
+    select ImGuiInputTextMultiline("SQL command result", cmdResult)
+    from sqlvars;
 
 select ImGuiEnd();
 

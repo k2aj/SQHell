@@ -49,6 +49,34 @@ void sql_get_floats(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
     sqlite3_result_int64(ctx, (int64_t) floatStack.data());
 }
 
+std::string eval_buf;
+
+int sql_eval_callback(void *userPtr, int nCol, char **colValues, char **colNames) {
+    if(!eval_buf.empty()) eval_buf += "\n";
+    for(int i = 0; i < nCol; ++i) {
+        eval_buf += colNames[i];
+        eval_buf += " = ";
+        eval_buf += (colValues[i] ? colValues[i] : "NULL");
+        eval_buf += "\n";
+    }
+    return 0;
+}
+
+void sql_eval(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 1);
+    char *cmd = strdup((const char*)sqlite3_value_text(*argv));
+    auto db = sqlite3_context_db_handle(ctx);
+
+    eval_buf.clear();
+    char *err;
+    int rc = sqlite3_exec(db, cmd, sql_eval_callback, nullptr, &err);
+
+    if(rc == SQLITE_OK) sqlite3_result_text(ctx, strdup(eval_buf.c_str()), -1, free);
+    else sqlite3_result_text(ctx, strdup(err), -1, free);
+
+    free(cmd);
+}
+
 void sql_glfwInit(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
     assert(argc == 0);
     sqlite3_result_int(ctx, glfwInit());
@@ -312,6 +340,21 @@ void sql_ImGuiButton(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
     sqlite3_result_int(ctx, ret);
 }
 
+void sql_ImGuiInputTextMultiline(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 2 || argc == 3);
+
+    static char lblBuf[1<<10];
+    static char txtBuf[1<<20];
+
+    strcpy(lblBuf, (const char*) sqlite3_value_text(argv[0]));
+    strcpy(txtBuf, (const char*) sqlite3_value_text(argv[1]));
+    int flags = argc < 3 ? 0 : sqlite3_value_int(argv[2]);
+    
+    ImGui::InputTextMultiline(lblBuf, txtBuf, sizeof(txtBuf)-1, ImVec2(0,0), flags);
+
+    sqlite3_result_text(ctx, strdup(txtBuf), -1, free);
+}
+
 void create_scalar_function(sqlite3 *db, const char *function_name, int narg, void (*ptr)(sqlite3_context*, int, sqlite3_value**)) {
     int rc = sqlite3_create_function(db, function_name, narg, SQLITE_UTF8, nullptr, ptr, nullptr, nullptr);
     if(rc != SQLITE_OK) throw std::runtime_error("failed to create function");
@@ -337,6 +380,7 @@ void init_sql_bindings(sqlite3 *db) {
     create_scalar_function(db, "pushFloats",               -1, sql_push_floats);
     create_scalar_function(db, "clearFloats",               0, sql_clear_floats);
     create_scalar_function(db, "getFloats",                 0, sql_get_floats);
+    create_scalar_function(db, "eval",                      1, sql_eval);
 
     create_scalar_function(db, "glfwInit",                  0, sql_glfwInit);
     create_scalar_function(db, "glfwTerminate",             0, sql_glfwTerminate);
@@ -396,6 +440,8 @@ void init_sql_bindings(sqlite3 *db) {
     create_scalar_function(db, "ImGuiButton",               1, sql_ImGuiButton);
     create_scalar_function(db, "ImGuiButton",               2, sql_ImGuiButton);
     create_scalar_function(db, "ImGuiButton",               3, sql_ImGuiButton);
+    create_scalar_function(db, "ImGuiInputTextMultiline",   2, sql_ImGuiInputTextMultiline);
+    create_scalar_function(db, "ImGuiInputTextMultiline",   3, sql_ImGuiInputTextMultiline);
 }
 
 }
