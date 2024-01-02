@@ -26,6 +26,7 @@ create table if not exists entities(
     sy real not null default(0.1),
     isPlayer int not null default(0),
     keepInBounds int not null default(0),
+    deleteOutOfBounds int not null default(0),
     reloadLeft real not null default(0),
     affiliation int,
     contactDamage real,
@@ -199,6 +200,15 @@ delete from damageEvents;
 delete from entities
 where health <= 0
 or age >= maxAge;
+
+delete from entities
+where deleteOutOfBounds
+and (
+    x+sx/2 < -1 or
+    x-sx/2 > 1 or
+    y+sy/2 < -1 or
+    y-sy/2 > 1
+);
 
 -- GAME RENDER
 
