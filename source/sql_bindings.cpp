@@ -3,6 +3,9 @@
 #include <stdexcept>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_opengl3.h>
 #include <cassert>
 #include <vector>
 #include <cstring>
@@ -228,6 +231,87 @@ void sql_glDrawArrays(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
     );
 }
 
+void sql_ImGuiCreateContext(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    sqlite3_result_int64(ctx, (int64_t) ImGui::CreateContext());
+}
+
+void sql_ImGui_ImplGlfw_InitForOpenGL(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 2);
+    auto window = (GLFWwindow*) sqlite3_value_int64(argv[0]);
+    auto installCallbacks = sqlite3_value_int(argv[1]) != 0;
+    bool ret = ImGui_ImplGlfw_InitForOpenGL(window, installCallbacks);
+    sqlite3_result_int(ctx, ret);
+}
+
+void sql_ImGui_ImplOpenGL3_Init(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0 || argc == 1);
+    const char *glslVersion = nullptr;
+    if(argc == 1) glslVersion = (const char*) sqlite3_value_text(argv[0]);
+    bool ret = ImGui_ImplOpenGL3_Init(glslVersion);
+    sqlite3_result_int(ctx, ret);
+}
+
+void sql_ImGui_ImplOpenGL3_NewFrame(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    ImGui_ImplOpenGL3_NewFrame();
+}
+
+void sql_ImGui_ImplGlfw_NewFrame(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    ImGui_ImplGlfw_NewFrame();
+}
+
+void sql_ImGuiNewFrame(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    ImGui::NewFrame();
+}
+
+void sql_ImGuiRender(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    ImGui::Render();
+}
+
+void sql_ImGuiGetDrawData(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    sqlite3_result_int64(ctx, (int64_t)ImGui::GetDrawData());
+}
+
+void sql_ImGui_ImplOpenGL3_RenderDrawData(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 1);
+    ImGui_ImplOpenGL3_RenderDrawData((ImDrawData*)sqlite3_value_int64(*argv));
+}
+
+void sql_ImGuiBegin(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 1 || argc == 2);
+    int flags = 0;
+    if(argc == 2) flags = sqlite3_value_int(argv[1]); 
+    bool ret = ImGui::Begin((const char*)sqlite3_value_text(*argv), nullptr, flags);
+    sqlite3_result_int(ctx, ret);
+}
+
+void sql_ImGuiEnd(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 0);
+    ImGui::End();
+}
+
+void sql_ImGuiLabel(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 2);
+    char *name = strdup((const char*)sqlite3_value_text(argv[0]));
+    const char *value = (const char*) sqlite3_value_text(argv[1]);
+    ImGui::LabelText(name, "%s", value);
+    free(name);
+}
+
+void sql_ImGuiButton(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    assert(argc == 1 || argc == 2 || argc == 3);
+    auto text = (const char*) sqlite3_value_text(argv[0]);
+    float sx = argc < 2 ? 0.0 : sqlite3_value_double(argv[1]);
+    float sy = argc < 3 ? 0.0 : sqlite3_value_double(argv[2]);
+    bool ret = ImGui::Button(text, ImVec2(sx,sy));
+    sqlite3_result_int(ctx, ret);
+}
+
 void create_scalar_function(sqlite3 *db, const char *function_name, int narg, void (*ptr)(sqlite3_context*, int, sqlite3_value**)) {
     int rc = sqlite3_create_function(db, function_name, narg, SQLITE_UTF8, nullptr, ptr, nullptr, nullptr);
     if(rc != SQLITE_OK) throw std::runtime_error("failed to create function");
@@ -244,6 +328,7 @@ void create_int_constant(sqlite3 *db, const char *name) {
 }
 
 void init_sql_bindings(sqlite3 *db) {
+
     create_scalar_function(db, "print",                    -1, sql_print);
     create_scalar_function(db, "println",                  -1, sql_println);
     create_scalar_function(db, "exit",                      0, sql_exit);
@@ -252,6 +337,7 @@ void init_sql_bindings(sqlite3 *db) {
     create_scalar_function(db, "pushFloats",               -1, sql_push_floats);
     create_scalar_function(db, "clearFloats",               0, sql_clear_floats);
     create_scalar_function(db, "getFloats",                 0, sql_get_floats);
+
     create_scalar_function(db, "glfwInit",                  0, sql_glfwInit);
     create_scalar_function(db, "glfwTerminate",             0, sql_glfwTerminate);
     create_scalar_function(db, "glfwCreateWindow",          3, sql_glfwCreateWindow);
@@ -263,7 +349,9 @@ void init_sql_bindings(sqlite3 *db) {
     create_scalar_function(db, "glfwMakeContextCurrent",    1, sql_glfwMakeContextCurrent);
     create_scalar_function(db, "glfwWindowShouldClose",     1, sql_glfwWindowShouldClose);
     create_scalar_function(db, "glfwGetTime",               0, sql_glfwGetTime);
+
     create_scalar_function(db, "gladLoadGL",                0, sql_gladLoadGL);
+
     create_scalar_function(db, "glClearColor",              3, sql_glClearColor);
     create_scalar_function(db, "glClearColor",              4, sql_glClearColor);
     create_scalar_function(db, "glClear",                   1, sql_glClear);
@@ -290,6 +378,24 @@ void init_sql_bindings(sqlite3 *db) {
     create_int_constant<GL_FLOAT>(db, "GL_FLOAT");
     create_scalar_function(db, "glDrawArrays",              3, sql_glDrawArrays);
     create_int_constant<GL_TRIANGLES>(db, "GL_TRIANGLES");
+
+    create_scalar_function(db, "ImGuiCreateContext",        0, sql_ImGuiCreateContext);
+    create_scalar_function(db, "ImGui_ImplGlfw_InitForOpenGL", 2, sql_ImGui_ImplGlfw_InitForOpenGL);
+    create_scalar_function(db, "ImGui_ImplOpenGL3_Init",    0, sql_ImGui_ImplOpenGL3_Init);
+    create_scalar_function(db, "ImGui_ImplOpenGL3_Init",    1, sql_ImGui_ImplOpenGL3_Init);
+    create_scalar_function(db, "ImGui_ImplOpenGL3_NewFrame",0, sql_ImGui_ImplOpenGL3_NewFrame);
+    create_scalar_function(db, "ImGui_ImplGlfw_NewFrame",   0, sql_ImGui_ImplGlfw_NewFrame);
+    create_scalar_function(db, "ImGuiNewFrame",             0, sql_ImGuiNewFrame);
+    create_scalar_function(db, "ImGuiRender",               0, sql_ImGuiRender);
+    create_scalar_function(db, "ImGuiGetDrawData",          0, sql_ImGuiGetDrawData);
+    create_scalar_function(db, "ImGui_ImplOpenGL3_RenderDrawData", 1, sql_ImGui_ImplOpenGL3_RenderDrawData);
+    create_scalar_function(db, "ImGuiBegin",                1, sql_ImGuiBegin);
+    create_scalar_function(db, "ImGuiBegin",                2, sql_ImGuiBegin);
+    create_scalar_function(db, "ImGuiEnd",                  0, sql_ImGuiEnd);
+    create_scalar_function(db, "ImGuiLabel",                2, sql_ImGuiLabel);
+    create_scalar_function(db, "ImGuiButton",               1, sql_ImGuiButton);
+    create_scalar_function(db, "ImGuiButton",               2, sql_ImGuiButton);
+    create_scalar_function(db, "ImGuiButton",               3, sql_ImGuiButton);
 }
 
 }

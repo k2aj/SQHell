@@ -12,7 +12,10 @@ create table if not exists vars(
     fragmentShader int,
     shaderProgram int,
     vbo int,
-    vao int
+    vao int,
+
+    totalScore int not null default(0)
+
 ) strict;
 
 -- We're doing ECS since it's basically a simplified version of the relational model
@@ -82,6 +85,18 @@ update vars
 set rc = gladLoadGL()
 where shouldSetup;
 
+select ImGuiCreateContext() 
+from vars 
+where shouldSetup;
+
+select ImGui_ImplGlfw_InitForOpenGL(pWindow, 1)
+from vars
+where shouldSetup;
+
+select ImGui_ImplOpenGL3_Init('#version 450')
+from vars
+where shouldSetup;
+
 update vars
 set vbo = glCreateBuffer(),
     vao = glCreateVertexArray(),
@@ -146,6 +161,36 @@ where shouldSetup;
 select exit(0)
 from vars
 where glfwWindowShouldClose(pWindow);
+
+-- GUI BOILERPLATE
+
+select ImGui_ImplOpenGL3_NewFrame();
+select ImGui_ImplGlfw_NewFrame();
+select ImGuiNewFrame();
+
+-- GUI
+
+select ImGuiBegin("Statistics");
+
+    select ImGuiLabel("Score", totalScore)
+    from vars;
+
+    select ImGuiLabel("Total entities", count(*)) 
+    from entities;
+
+    select ImGuiLabel("Affiliation "||affiliation, count(*)) 
+    from entities group by affiliation order by affiliation;
+
+    select ImGuiLabel("With contact damage", count(*)) 
+    from entities where contactDamage is not null;
+
+    select ImGuiLabel("With health", count(*)) 
+    from entities where health is not null;
+
+    select ImGuiLabel("Player controlled", count(*)) 
+    from entities where isPlayer;
+
+select ImGuiEnd();
 
 -- GAME UPDATE
 
@@ -280,6 +325,9 @@ select clearFloats();
 
 select glDrawArrays(GL_TRIANGLES(), 0, (select count(*)*6 from rects));
 delete from rects;
+
+select ImGuiRender();
+select ImGui_ImplOpenGL3_RenderDrawData(ImGuiGetDrawData());
 
 -- Polling etc
 
