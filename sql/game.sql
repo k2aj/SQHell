@@ -28,13 +28,16 @@ create table if not exists entities(
     keepInBounds int not null default(0),
     deleteOutOfBounds int not null default(0),
     reloadLeft real not null default(0),
+    reloadTime real not null default(0.3),
+    isShooting int not null default(0),
     affiliation int,
     contactDamage real,
     health real,
     maxHealth real,
     iframes real not null default(0),
     age real not null default(0),
-    maxAge real
+    maxAge real,
+    hitCap int
 ) strict;
 
 create table if not exists damageEvents(
@@ -125,8 +128,8 @@ from vars
 where shouldSetup;
 
 -- Insert an enemy
-insert into entities(x,y,contactDamage,affiliation)
-select 0, 0.5, 10, 1
+insert into entities(x,y,contactDamage,affiliation,health,maxHealth)
+select 0, 0.5, 10, 1, 100, 100
 from vars
 where shouldSetup;
 
@@ -161,12 +164,29 @@ set vx = cos(atan2(vy,vx)) * 0.5,
     vy = sin(atan2(vy,vx)) * 0.5
 where isPlayer and (vx <> 0 or vy <> 0);
 
--- Apply velocity and increase age
+update entities 
+set isShooting = (select glfwGetKey(pWindow, " ") = GLFW_PRESS() from vars)
+where isPlayer;
+
+-- Shooting
+insert into entities(affiliation, contactDamage, deleteOutOfBounds, hitCap, x, y, sx, sy, vy)
+select 
+    affiliation, 10, 1, 1, x, y, 0.05, 0.05,
+    case affiliation when 0 then 1 else -0.5 end
+from entities
+where isShooting and reloadLeft <= (select dt from vars);
+
+update entities
+set reloadLeft = reloadLeft + reloadTime
+where isShooting and reloadLeft <= (select dt from vars);
+
+-- Apply velocity, increase age, reload weapon
 update entities
 set x = x + vx * (select dt from vars),
     y = y + vy * (select dt from vars),
     age = age + (select dt from vars),
-    iframes = max(0, iframes - (select dt from vars));
+    iframes = max(0, iframes - (select dt from vars)),
+    reloadLeft = max(0, reloadLeft - (select dt from vars));
 
 -- Keep some entities in bounds
 update entities
@@ -194,12 +214,18 @@ set iframes = iframes + 0.25,
     ))
 where exists (select target_id from damageEvents where target_id = id);
 
+update entities
+set hitCap = max(0, hitCap-1)
+where hitCap is not null 
+and exists (select attacker_id from damageEvents where attacker_id = id);
+
 delete from damageEvents;
 
 -- Delete entities where applicable
 delete from entities
 where health <= 0
-or age >= maxAge;
+or age >= maxAge
+or hitCap = 0;
 
 delete from entities
 where deleteOutOfBounds
