@@ -3,7 +3,6 @@
 -- Global variables table
 create table if not exists vars(
     rc          any,                        -- generic return code variable
-    shouldSetup int not null,               -- flag which makes the application run setup code when true
     pWindow     int not null default(0),    -- pointer to GLFW window
     t           real,                       -- time when last frame started
     dt          real not null default(0.16),-- duration of last frame
@@ -17,6 +16,15 @@ create table if not exists vars(
     totalScore int not null default(0)
 
 ) strict;
+
+-- Player inputs
+create view if not exists inputs as select
+    glfwGetKey(pWindow, "A") as left,
+    glfwGetKey(pWindow, "D") as right,
+    glfwGetKey(pWindow, "S") as down,
+    glfwGetKey(pWindow, "W") as up,
+    glfwGetKey(pWindow, " ") as shoot
+from vars;
 
 -- Separate global variables table for variables used in eval()
 -- These can't be in vars because then eval() would lock the vars table,
@@ -72,100 +80,72 @@ create table if not exists rects(
 
 --------------------------------------------- SETUP -----------------------------------------------
 
+create trigger if not exists setup
+after insert on vars
+begin
+    -- Initialize libraries
+    update vars set rc = glfwInit();
+    update vars set pWindow = glfwCreateWindow(1280, 1280, "SQHell");
+    update vars set rc = glfwMakeContextCurrent(pWindow);
+    update vars set rc = gladLoadGL();
+    select ImGuiCreateContext();
+    select ImGui_ImplGlfw_InitForOpenGL(pWindow, 1) from vars;
+    select ImGui_ImplOpenGL3_Init('#version 450');
+
+    -- Create OpenGL objects
+    update vars
+    set vbo = glCreateBuffer(),
+        vao = glCreateVertexArray(),
+        vertexShader = glCreateShader(GL_VERTEX_SHADER()),
+        fragmentShader = glCreateShader(GL_FRAGMENT_SHADER()),
+        shaderProgram = glCreateProgram();
+
+    select
+        glShaderSource(vertexShader, readFileText("shaders/color.vert")),
+        glShaderSource(fragmentShader, readFileText("shaders/color.frag"))
+    from vars;
+
+    select 
+        glCompileShader(vertexShader), 
+        glCompileShader(fragmentShader)
+    from vars;
+
+    select 
+        glAttachShader(shaderProgram, vertexShader), 
+        glAttachShader(shaderProgram, fragmentShader)
+    from vars;
+
+    select glLinkProgram(shaderProgram) from vars;
+
+    select 
+        glBindVertexArray(vao), 
+        glBindBuffer(GL_ARRAY_BUFFER(), vbo) 
+    from vars;
+    
+    select 
+        glEnableVertexAttribArray(0),
+        glEnableVertexAttribArray(1),
+        glVertexAttribPointer(0, 2, GL_FLOAT(), 0, 24, 0),
+        glVertexAttribPointer(1, 4, GL_FLOAT(), 0, 24, 8)
+    from vars;
+
+    -- Insert player entity
+    insert into entities(x,y,isPlayer,keepInBounds,health,maxHealth,affiliation) values (0, 0, 1, 1, 100, 100, 0);
+
+    -- Insert an enemy
+    insert into entities(x,y,contactDamage,affiliation,health,maxHealth, scoreForKill) values(0, 0.5, 10, 1, 100, 100, 100);
+
+    update vars set t = glfwGetTime() - dt;
+end;
+
 -- Ensure there is a row in vars
-insert into vars(shouldSetup)
-select 1
+insert into vars(rc)
+select null
 where (select count(*) from vars) = 0;
 
 insert into sqlvars(cmd)
 select ''
 where (select count(*) from sqlvars) = 0;
-
--- Initialize GLFW and OpenGL
-update vars
-set rc = glfwInit()
-where shouldSetup;
-
-update vars
-set pWindow = glfwCreateWindow(1280, 1280, "SQHell")
-where shouldSetup;
-
-update vars
-set rc = glfwMakeContextCurrent(pWindow)
-where shouldSetup;
-
-update vars
-set rc = gladLoadGL()
-where shouldSetup;
-
-select ImGuiCreateContext() 
-from vars 
-where shouldSetup;
-
-select ImGui_ImplGlfw_InitForOpenGL(pWindow, 1)
-from vars
-where shouldSetup;
-
-select ImGui_ImplOpenGL3_Init('#version 450')
-from vars
-where shouldSetup;
-
-update vars
-set vbo = glCreateBuffer(),
-    vao = glCreateVertexArray(),
-    vertexShader = glCreateShader(GL_VERTEX_SHADER()),
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER()),
-    shaderProgram = glCreateProgram()
-where shouldSetup;
-
-select
-    glShaderSource(vertexShader, readFileText("shaders/color.vert")),
-    glShaderSource(fragmentShader, readFileText("shaders/color.frag"))
-from vars
-where shouldSetup;
-
-select 
-    glCompileShader(vertexShader), 
-    glCompileShader(fragmentShader)
-from vars where shouldSetup;
-
-select 
-    glAttachShader(shaderProgram, vertexShader), 
-    glAttachShader(shaderProgram, fragmentShader)
-from vars where shouldSetup;
-
-select glLinkProgram(shaderProgram) 
-from vars where shouldSetup;
-
-select 
-    glBindVertexArray(vao), 
-    glBindBuffer(GL_ARRAY_BUFFER(), vbo) 
-from vars where shouldSetup;
-
-select 
-    glEnableVertexAttribArray(0),
-    glEnableVertexAttribArray(1),
-    glVertexAttribPointer(0, 2, GL_FLOAT(), 0, 24, 0),
-    glVertexAttribPointer(1, 4, GL_FLOAT(), 0, 24, 8)
-from vars where shouldSetup;
-
--- Insert player entity
-insert into entities(x,y,isPlayer,keepInBounds,health,maxHealth,affiliation)
-select 0, 0, 1, 1, 100, 100, 0
-from vars
-where shouldSetup;
-
--- Insert an enemy
-insert into entities(x,y,contactDamage,affiliation,health,maxHealth, scoreForKill)
-select 0, 0.5, 10, 1, 100, 100, 100
-from vars
-where shouldSetup;
-
-
--- Complete setup
-update vars
-set shouldSetup = 0, t = glfwGetTime() - dt
-where shouldSetup;
 
 ------------------------------------------- MAIN LOOP ---------------------------------------------
 
@@ -218,43 +198,46 @@ select ImGuiEnd();
 -- GAME UPDATE
 
 -- Delta T management
-update vars set dt = glfwGetTime() - t;
-update vars set t = glfwGetTime();
+update vars 
+set dt = glfwGetTime() - t, 
+    t  = glfwGetTime();
 
 -- Control player
 update entities set vx=0, vy=0 where isPlayer;
-update entities set vx=vx-1 where isPlayer and glfwGetKey((select pWindow from vars), "A") = GLFW_PRESS();
-update entities set vx=vx+1 where isPlayer and glfwGetKey((select pWindow from vars), "D") = GLFW_PRESS();
-update entities set vy=vy-1 where isPlayer and glfwGetKey((select pWindow from vars), "S") = GLFW_PRESS();
-update entities set vy=vy+1 where isPlayer and glfwGetKey((select pWindow from vars), "W") = GLFW_PRESS();
+
+update entities
+set vx = vx + iif(inputs.left, -1, 0) + iif(inputs.right, 1, 0),
+    vy = vy + iif(inputs.down, -1, 0) + iif(inputs.up,    1, 0),
+    isShooting = inputs.shoot
+from inputs
+where isPlayer;
+
 update entities
 set vx = cos(atan2(vy,vx)) * 0.5,
     vy = sin(atan2(vy,vx)) * 0.5
 where isPlayer and (vx <> 0 or vy <> 0);
-
-update entities 
-set isShooting = (select glfwGetKey(pWindow, " ") = GLFW_PRESS() from vars)
-where isPlayer;
 
 -- Shooting
 insert into entities(affiliation, contactDamage, deleteOutOfBounds, hitCap, x, y, sx, sy, vy)
 select 
     affiliation, 10, 1, 1, x, y, 0.05, 0.05,
     case affiliation when 0 then 1 else -0.5 end
-from entities
-where isShooting and reloadLeft <= (select dt from vars);
+from entities, vars
+where isShooting and reloadLeft <= dt;
 
 update entities
 set reloadLeft = reloadLeft + reloadTime
-where isShooting and reloadLeft <= (select dt from vars);
+from vars
+where isShooting and reloadLeft <= dt;
 
 -- Apply velocity, increase age, reload weapon
 update entities
-set x = x + vx * (select dt from vars),
-    y = y + vy * (select dt from vars),
-    age = age + (select dt from vars),
-    iframes = max(0, iframes - (select dt from vars)),
-    reloadLeft = max(0, reloadLeft - (select dt from vars));
+set x = x + vx * dt,
+    y = y + vy * dt,
+    age = age + dt,
+    iframes = max(0, iframes - dt),
+    reloadLeft = max(0, reloadLeft - dt)
+from vars;
 
 -- Keep some entities in bounds
 update entities
@@ -348,13 +331,13 @@ select pushFloats(
 ) from rects;
 
 select glNamedBufferData(
-    vbo, (select count(*)*6*24 from rects), 
+    vbo, count(*)*6*24, 
     getFloats(), GL_STREAM_DRAW()
-) from vars;
+) from rects, vars;
 
 select clearFloats();
 
-select glDrawArrays(GL_TRIANGLES(), 0, (select count(*)*6 from rects));
+select glDrawArrays(GL_TRIANGLES(), 0, count(*)*6) from rects;
 delete from rects;
 
 select ImGuiRender();
